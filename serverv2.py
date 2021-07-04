@@ -182,7 +182,7 @@ def sip(connection):
 #-----------------------------------------------------------------------
         callid=parsed['CALL-ID'].replace(" ","")
         with data_lock:
-            calls = activecalls
+            calls = activecalls.copy()
 
         if callid not in calls.keys():
             if (parsed['SIPURI'][:parsed['SIPURI'].find(" ")]) == 'INVITE':
@@ -219,7 +219,6 @@ def breakline(line,separator):
 
 
 def maintaincalls(connection):
-    calls={}
     logging.info("Maintaincalls process started")
     global activecalls
     timertrying=0.3
@@ -240,70 +239,77 @@ def maintaincalls(connection):
             #logging.debug("Activating the lock")
 
             with data_lock:
-                calls=activecalls
+                initiated=activecalls.copy()
             step=1
-            if len(calls) > 1 and flag==0:
-                logging.debug("Active calls length is %i",len(activecalls))
-                flag=1
+
             modification=0
-            for call in calls:
+            step=1.5
+            previouslen=len(initiated)
+            for call in initiated:
+      #          updatedcall=calls[call]
                 step=2
 #                if flag==1:
 #                    logging.debug("Second round %s",calls[call][-1]['MESSAGE'])
-                lastmessage=calls[call][-1]['MESSAGE']
+                lastmessage=initiated[call][-1]['MESSAGE']
                 step=3
                 rightnow=time.time()
-                if lastmessage=='100 Trying' and rightnow - calls[call][-1]['TIME'] > timertrying:
+                if lastmessage=='100 Trying' and rightnow - initiated[call][-1]['TIME'] > timertrying:
                     step=4
-                    logging.debug("Analysing call %s",call)
-                    logging.debug("Last message was 100 Trying")
+#                    logging.debug("Analysing call %s",call)
+                    logging.info("Sending ringing for %s",call)
 #                    calls.update({call:ringing(calls[call])})
-                    message=ringing(calls[call],call,connection)
+                    message=ringing(initiated[call],call,connection)
                     modification = 1
                     if not message:
                         break
-                    else:
-                        calls.update({call:message})
-                elif lastmessage=='180 Ringing' and time.time() - calls[call][-1]['TIME'] > ringingtime:
+#                   else:
+                        #calls.update({call:message})
+                elif lastmessage=='180 Ringing' and time.time() - initiated[call][-1]['TIME'] > ringingtime:
 #                    calls.update({call:answer(calls[call])}) 
-                    message=answer(calls[call],call,connection)
+                    message=answer(initiated[call],call,connection)
                     if not message:
                         break
-                    else:
-                        calls.update({call:message})
-                        logging.debug("Object Calls updated")
+#                    else:
+#                        calls.update({call:message})
+#                        logging.debug("Object Calls updated")
                     #--------------------------------------------
 
-                    mediaip=calls[call][0]['MEDIAIP']
-                    mediaport=calls[call][0]['MEDIAPORT']
+                    mediaip=initiated[call][0]['MEDIAIP']
+                    mediaport=initiated[call][0]['MEDIAPORT']
                     logging.debug("Preparing media to %s:%s",mediaip,mediaport)
            
                     modification=1
-                    calls[call].append({"TIME":time.time()})
-                    calls[call][-1].update({"MESSAGE":"RTP"})
+#                    calls[call].append({"TIME":time.time()})
+                    message.append({"TIME":time.time()})
+#                    calls[call][-1].update({"MESSAGE":"RTP"})
+                    message[-1].update({"MESSAGE":"RTP"})
                     logging.debug("Updating calls object")
-                    calls[call][-1].update({"MEDIAPROCESS":multiprocessing.Process(target=media, args=[calls[call][0]['MEDIAIP'],calls[call][0]['MEDIAPORT']])})
+#                    calls[call][-1].update({"MEDIAPROCESS":multiprocessing.Process(target=media, args=[calls[call][0]['MEDIAIP'],calls[call][0]['MEDIAPORT']])})
+                    message[-1].update({"MEDIAPROCESS":multiprocessing.Process(target=media, args=[initiated[call][0]['MEDIAIP'],initiated[call][0]['MEDIAPORT']])})
                     logging.debug("Setting up the process")
-                    calls[call][-1]["MEDIAPROCESS"].start()
+#                    calls[call][-1]["MEDIAPROCESS"].start()
+                    message[-1]["MEDIAPROCESS"].start()
                     logging.debug("RTP process Started")
                 step=10
             if modification == 1:
                 with data_lock:
-                    activecalls=calls
+                    activecalls[call]=message
       
         except Exception as e:
-            logging.error("Something went wrong with maintain calls process, object is: %s",calls)
+            logging.error("Something went wrong with maintain calls process, object is: %s",initiated)
             logging.error("Step is %i",step)
    #         if lastmessage=='100 Trying' and rightnow - calls[call][-1]['TIME'] > timertrying:
-            logging.error("lastmessage is %s, rightnow is %s  calls[call][-1]['TIME'] is %s ",lastmessage, rightnow, calls[call][-1]['TIME'])
+            logging.error("lastmessage is %s, rightnow is %s  calls[call][-1]['TIME'] is %s ",lastmessage, rightnow, initiated[call][-1]['TIME'])
             logging.error("current check is for %s",call)
+            logging.error("previous len is %s and current len is %s",previouslen,len(initiated))
             if hasattr(e,'message'):
                 logging.exception("%s",e.message)
                 break
             else:
                 logging.exception("%s",e)
                 break
-
+#        finally:
+#            logging.debug("%s",initiated)
 
 
 
@@ -416,6 +422,6 @@ if __name__ == "__main__":
     data_lock = Lock()
     remoteip = ''
     remoteport = 0
-    logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.DEBUG)
+    logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.INFO)
     logging.debug("Defined Initial parameters")
     main()
