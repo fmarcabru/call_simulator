@@ -92,11 +92,14 @@ def parsemessage(sipmess):
 
 def sendsipmessage(socket,ip,port,message):
     try:
-        bytessent=socket.sendto(message.encode(),(ip,port))
-        if bytessent==0:
-            logging.error("Sendsipmessage didn't send anything")
+        socket.sendto(message.encode(),(ip,port))
+#        bytessent=socket.sendto(message.encode(),(ip,port))
+#        if bytessent==0:
+#            logging.error("Sendsipmessage didn't send anything")
     except Exception as e:
         logging.error("Error in sendsipmessage section")
+        logging.error("Sendsipmessage:\n %s",message)
+        logging.error("Sendsipmessage: ip port %s:%s",ip,port)
         if hasattr(e,'message'):
             logging.exception("%s",e.message)
         else:
@@ -151,9 +154,10 @@ def sip(connection):
  #   global port
     global stop_threads
     global rtpport
- #   global remoteip
- #   global remoteport
-
+    global remoteip
+    global remoteport
+    message={}
+    messages=[]
 
 
     while not stop_threads:
@@ -170,34 +174,48 @@ def sip(connection):
 #-----------------------------------------------------------------------
         callid=parsed['CALL-ID'].replace(" ","")
         with data_lock:
-            calls = activecalls.copy()
+            #getting the call ids of all initiated calls
+            callids = activecalls.keys()
 
-        if callid not in calls.keys():
+        if callid not in callids:
             if (parsed['SIPURI'][:parsed['SIPURI'].find(" ")]) == 'INVITE':
-    
-                calls.update({callid:[{"TIME":messagetime}]})
-                calls[callid][-1].update({"MESSAGE":"INVITE"})
-                calls[callid][-1].update({"VIA":parsed['VIA']})
-                calls[callid][-1].update({"FROM":parsed['FROM']})
-                calls[callid][-1].update({"TO":parsed['TO']})
-                calls[callid][-1].update({"CSEQ":parsed['CSEQ']})
-                calls[callid][-1].update({"MEDIAIP":parsed['C'][0].split()[-1]})
-                calls[callid][-1].update({"MEDIAPORT":parsed['M'][0].split()[1]})
+                message.update({"TIME":messagetime})
+                message.update({"MESSAGE":"INVITE"})
+                message.update({"VIA":parsed['VIA']})
+                message.update({"FROM":parsed['FROM']})
+                message.update({"TO":parsed['TO']})
+                message.update({"CSEQ":parsed['CSEQ']})
+                message.update({"MEDIAIP":parsed['C'][0].split()[-1]})
+                message.update({"MEDIAPORT":parsed['M'][0].split()[1]})
+                messages.append(message)
+
+#                calls.update({callid:[{"TIME":messagetime}]})
+#                calls[callid][-1].update({"MESSAGE":"INVITE"})
+#                calls[callid][-1].update({"VIA":parsed['VIA']})
+#                calls[callid][-1].update({"FROM":parsed['FROM']})
+#                calls[callid][-1].update({"TO":parsed['TO']})
+#                calls[callid][-1].update({"CSEQ":parsed['CSEQ']})
+#                calls[callid][-1].update({"MEDIAIP":parsed['C'][0].split()[-1]})
+#                calls[callid][-1].update({"MEDIAPORT":parsed['M'][0].split()[1]})
                 
                 sendsipmessage(connection,remoteip,remoteport,"SIP/2.0 100 Trying"+"\r\nVia:"+parsed['VIA']+"\r\nFrom:"+parsed['FROM']+"\r\nTo:"+parsed['TO']+"\r\nCall-ID:"+parsed['CALL-ID']+"\r\nCSeq:"+parsed['CSEQ']+"\r\n\r\n")
-                calls[callid].append({"TIME":time.time()})
-                calls[callid][-1].update({"MESSAGE":"100 Trying"})
-            
-
+                message={}
+                message.update({"TIME":time.time()})
+                message.update({"MESSAGE":"100 Trying"})
+#                calls[callid].append({"TIME":time.time()})
+#                calls[callid][-1].update({"MESSAGE":"100 Trying"})
+                messages.append(message)
+                with data_lock:
+                    activecalls.update({callid:messages})
             else:
                 print("received ({}) message with no active call".format(parsed['SIPURI']))
         else:
                 print("RECEIVED ------{}".format(parsed['SIPURI']))
-       
-        
-        with data_lock:
-            activecalls = calls
 
+
+        
+        message={}
+        messages=[]  
 
 
 def breakline(line,separator):
@@ -215,6 +233,7 @@ def maintaincalls(connection):
     flag=0
     step=0
 #    testtime=time.time()
+    previouslen=0
     while True:
         try:
     #        if time.time()-testtime >1:
@@ -232,7 +251,14 @@ def maintaincalls(connection):
 
             modification=0
             step=1.5
-            previouslen=len(initiated)
+#            previouslen=len(initiated)
+            if previouslen != len(initiated):
+                logging.info("---Maintaining %s calls",len(initiated))
+#                logging.info("%s",initiated)
+#                logging.info("calls:\n%s",initiated)
+                for call in initiated:
+                    for message in initiated[call]:
+                        print("Call id {}, message {}, len {}, time {}".format(call,message['MESSAGE'],len(message),message['TIME'])) 
             for call in initiated:
       #          updatedcall=calls[call]
                 step=2
@@ -244,7 +270,6 @@ def maintaincalls(connection):
                 if lastmessage=='100 Trying' and rightnow - initiated[call][-1]['TIME'] > timertrying:
                     step=4
 #                    logging.debug("Analysing call %s",call)
-                    logging.info("Sending ringing for %s",call)
 #                    calls.update({call:ringing(calls[call])})
                     message=ringing(initiated[call],call,connection)
                     modification = 1
@@ -271,10 +296,15 @@ def maintaincalls(connection):
                     message[-1]["MEDIAPROCESS"].start()
                     logging.debug("RTP process Started")
                 step=10
-            if modification == 1:
-                with data_lock:
-                    activecalls[call]=message
-      
+
+                if modification == 1:
+                    with data_lock:
+                        activecalls[call]=message
+                    modification = 0
+
+            previouslen=len(initiated)
+
+
         except Exception as e:
             logging.error("Something went wrong with maintain calls process, object is: %s",initiated)
             logging.error("Step is %i",step)
