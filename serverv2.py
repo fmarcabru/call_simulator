@@ -272,13 +272,17 @@ def maintaincalls(connection):
 #                    logging.debug("Analysing call %s",call)
 #                    calls.update({call:ringing(calls[call])})
                     message=ringing(initiated[call],call,connection)
-                    modification = 1
+#                    modification = 1
                     if not message:
                         break
 #                   else:
                         #calls.update({call:message})
+                    with data_lock:
+                        activecalls[call]=message
+
                 elif lastmessage=='180 Ringing' and time.time() - initiated[call][-1]['TIME'] > ringingtime:
                     message=answer(initiated[call],call,connection)
+        
                     if not message:
                         break
 
@@ -295,12 +299,15 @@ def maintaincalls(connection):
                     logging.debug("Setting up the process")
                     message[-1]["MEDIAPROCESS"].start()
                     logging.debug("RTP process Started")
+                    with data_lock:
+                        activecalls.pop(call)
+
                 step=10
 
-                if modification == 1:
-                    with data_lock:
-                        activecalls[call]=message
-                    modification = 0
+#                if modification == 1:
+#                    with data_lock:
+#                        activecalls[call]=message
+#                    modification = 0
 
             previouslen=len(initiated)
 
