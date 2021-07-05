@@ -13,34 +13,24 @@ import secrets
 
 
 def ringing(call,callid,connection):
-    logging.debug("Building ringing message")
+    logging.debug("Ringing:Building ringing message")
     global ip
     global port
     try:
-        logging.debug("received %s",call)
+        logging.info("Sending ringing for call %s",callid)
         tag=secrets.token_hex(8)
         hruri="SIP/2.0 180 Ringing"
         contactvalue=secrets.token_hex(12)
         hcontact="\r\nContact: <sip:{}@{}:{}>".format(contactvalue,ip,port)
-        logging.debug("contact built")
         hallow = "\r\nAllow: INVITE, INFO, BYE, CANCEL, ACK, UPDATE"
-        logging.debug("allow built")
         hvia="\r\nVia:"+call[0]['VIA']
-        logging.debug("via built")
         hfrom="\r\nFrom:"+call[0]['FROM']
-        logging.debug("from built")
         hto="\r\nTo:"+call[0]['TO']+";tag="
-        logging.debug("to built")
-    #   hto="\r\nTo:"+parsed['TO']+";tag="+tag
         hcseq="\r\nCSeq:"+call[0]['CSEQ']
-        logging.debug("cseq built")
-    #   hcseq="\r\nCSeq:"+parsed['CSEQ']
         hcallid="\r\nCall-ID:"+callid
-        logging.debug("callid built")
-    #   hcallid="\r\nCall-ID:"+parsed['CALL-ID']
         hend="\r\n\r\n"
         hcontentlength="\r\nContent-Length: 0"
-        logging.debug("headers built")
+        logging.debug("Ringing:headers built")
         ringing=hruri+hvia+hfrom+hto+hcallid+hcseq+hcontact+hallow+hcontentlength+hend
         sendsipmessage(connection,remoteip,remoteport,ringing)
         call.append({"TIME":time.time()})
@@ -78,7 +68,6 @@ def start_server(host, port):
 
 
 def parsemessage(sipmess):
-    #print(sipmess)
     headers={}
     info={}
     firstline=0
@@ -103,13 +92,11 @@ def parsemessage(sipmess):
 
 def sendsipmessage(socket,ip,port,message):
     try:
-        socket.sendto(message.encode(),(ip,port))
+        bytessent=socket.sendto(message.encode(),(ip,port))
+        if bytessent==0:
+            logging.error("Sendsipmessage didn't send anything")
     except Exception as e:
         logging.error("Error in sendsipmessage section")
-        print(type(message))
-        print(type(ip))
-        print(ip)
-        print(type(port))
         if hasattr(e,'message'):
             logging.exception("%s",e.message)
         else:
@@ -119,12 +106,13 @@ def sendsipmessage(socket,ip,port,message):
 def answer(call,callid,connection):
     global ip
     global rtpport
+    logging.info("Sending 200OK for call %s",callid)
     try:
         rtpport = rtpport + 2
         hruri="SIP/2.0 200 OK"
         hcontenttype="\r\nContent-Type: application/sdp"
         haccept="\r\nAccept: application/dtmf-relay,application/sdp"
-        #-------
+        #-------common parameters
         hvia="\r\nVia:"+call[0]['VIA']
         hfrom="\r\nFrom:"+call[0]['FROM']
         #Need to change the way I store the parameters as they are over different messages
@@ -159,13 +147,13 @@ def answer(call,callid,connection):
 def sip(connection):
     logging.info("SIP process started")
     global activecalls
-    global ip
-    global port
+ #   global ip
+ #   global port
     global stop_threads
     global rtpport
-    global remoteip
-    global remoteport
-    calls={}
+ #   global remoteip
+ #   global remoteport
+
 
 
     while not stop_threads:
@@ -265,29 +253,21 @@ def maintaincalls(connection):
 #                   else:
                         #calls.update({call:message})
                 elif lastmessage=='180 Ringing' and time.time() - initiated[call][-1]['TIME'] > ringingtime:
-#                    calls.update({call:answer(calls[call])}) 
                     message=answer(initiated[call],call,connection)
                     if not message:
                         break
-#                    else:
-#                        calls.update({call:message})
-#                        logging.debug("Object Calls updated")
-                    #--------------------------------------------
+
 
                     mediaip=initiated[call][0]['MEDIAIP']
                     mediaport=initiated[call][0]['MEDIAPORT']
                     logging.debug("Preparing media to %s:%s",mediaip,mediaport)
            
                     modification=1
-#                    calls[call].append({"TIME":time.time()})
                     message.append({"TIME":time.time()})
-#                    calls[call][-1].update({"MESSAGE":"RTP"})
                     message[-1].update({"MESSAGE":"RTP"})
                     logging.debug("Updating calls object")
-#                    calls[call][-1].update({"MEDIAPROCESS":multiprocessing.Process(target=media, args=[calls[call][0]['MEDIAIP'],calls[call][0]['MEDIAPORT']])})
                     message[-1].update({"MEDIAPROCESS":multiprocessing.Process(target=media, args=[initiated[call][0]['MEDIAIP'],initiated[call][0]['MEDIAPORT']])})
                     logging.debug("Setting up the process")
-#                    calls[call][-1]["MEDIAPROCESS"].start()
                     message[-1]["MEDIAPROCESS"].start()
                     logging.debug("RTP process Started")
                 step=10
@@ -342,20 +322,18 @@ def media(remoteip,remoteport):
         value4=bytes.fromhex(str(hex(timestamp))[2:])
         #4 byte ssrc
         value5=bytes.fromhex(ssrc)
-        print("here")   
         rtpheaders=value1+value2b+value3+value4+value5
         data=0
         deliverytime=0
 
         pasttime=time.time()
-        print("media from {}:{} to {}:{} counter is {} and timestamp is {}".format(ip,rtpport,remoteip,remoteport,seq,timestamp))
+        logging.info("Preparing to send media from%s:%s to %s:%s", ip, rtpport,remoteip, remoteport)
+
         with start_server(ip,rtpport) as socket:
-            print("socket opened")
             if len(rtpheaders)==12:
                 with open("rtp", "rb") as rtpfile:
                     data = rtpfile.read(160)
                     rtppacket=rtpheaders+data
-                    print("all good until here")
                     while data:
                         currenttime=time.time()
                         if currenttime-pasttime >= 0.02:
