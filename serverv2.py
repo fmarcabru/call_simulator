@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/python3
 import socket
 import os
 #from threading import Thread
